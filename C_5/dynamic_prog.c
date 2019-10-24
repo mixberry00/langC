@@ -1,20 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <dlfcn.h>
 #define Max_Size 256
-
-extern void sum_int (int a, int b, int *c);
-
-extern void sub_int (int a, int b, int *c);
-
-extern void sum_float (float a, float b, float *c);
-
-extern void sub_float (float a, float b, float *c);
-
-extern void sum_double (double a, double b, double *c);
-
-extern void sub_double (double a, double b, double *c);
-
 
 int main (int argc, char *argv[])
 {
@@ -22,6 +10,18 @@ int main (int argc, char *argv[])
     float a2, b2, c2;
     double a3, b3, c3;
     char choice;
+
+    void *library_handler;
+    int (*func_int)(int x, int y, int *z);
+    float (*func_float)(float x, float y, float *z);
+    double (*func_double)(double x, double y, double *z);
+
+    library_handler = dlopen("./libfuncdyn.so",RTLD_LAZY);
+    if (!library_handler) {
+        fprintf(stderr,"dlopen() error: %s\n", dlerror());
+        exit(1);
+    };
+
     FILE *fp;
 
     if ((fp = fopen (argv[1], "r")) == NULL)
@@ -66,15 +66,21 @@ int main (int argc, char *argv[])
 
     if (choice == '+')
     {
-        sum_int (a1, b1, &c1);
-        sum_float (a2, b2, &c2);
-        sum_double (a3, b3, &c3);
+        func_int = dlsym(library_handler, "sum_int");
+        (*func_int)(a1, b1, &c1);
+        func_float = dlsym(library_handler, "sum_float");
+        (*func_float)(a2, b2, &c2);
+        func_double = dlsym(library_handler, "sum_double");
+        (*func_double)(a3, b3, &c3);
     }
     else if (choice == '-')
     {
-        sub_int (a1, b1, &c1);
-        sub_float (a2, b2, &c2);
-        sub_double (a3, b3, &c3);
+        func_int = dlsym(library_handler, "sub_int");
+        (*func_int)(a1, b1, &c1);
+        func_float = dlsym(library_handler, "sub_float");
+        (*func_float)(a2, b2, &c2);
+        func_double = dlsym(library_handler, "sub_double");
+        (*func_double)(a3, b3, &c3);
     }
     else
     {
@@ -91,6 +97,8 @@ int main (int argc, char *argv[])
     fprintf(fp, "\nres_i = %d, res_f = %f, res_d = %lf", c1, c2, c3);
 
     fclose(fp);
+
+    dlclose(library_handler);
 
     return 0;
 }
