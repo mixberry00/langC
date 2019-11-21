@@ -27,11 +27,11 @@ int main (int argc, char *argv[])
 
     close (fp);
 
-    srand (time (NULL));
+    srand (time(NULL));
 
-    x += rand () / RAND_MAX * (10 + 10) - 10;
+    x += rand () % (20 + 20 + 1) - 20;
 
-    y += rand () / RAND_MAX * (10 + 10) - 10;
+    y += rand () % (20 + 20 + 1) - 20;
 
     if ((fp = fopen (argv[1], "w")) == NULL)
     {
@@ -47,5 +47,8 @@ int main (int argc, char *argv[])
 		res = 1;
 
     close (fp);
+    printf("\nCHILD: Это процесс-потомок!\n");
+	printf("CHILD: Мой PID -- %d\n", getpid());
+	printf("CHILD: PID моего родителя -- %d\n", getppid());
     return res;
 }
