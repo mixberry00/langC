@@ -25,7 +25,7 @@ int func(char *filename)
 
     fscanf (fp, "%d %d", &x, &y);
 
-    close (fp);
+    fclose (fp);
 
     srand (time(NULL));
 
@@ -46,7 +46,7 @@ int func(char *filename)
 	else
 		res = 1;
 
-    close (fp);
+    fclose (fp);
     printf("\nCHILD: Это процесс-потомок!\n");
 	printf("CHILD: Мой PID -- %d\n", getpid());
 	printf("CHILD: PID моего родителя -- %d\n", getppid());
