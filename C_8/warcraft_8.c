@@ -1,7 +1,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <wait.h>
-#include <fcntl.h> 
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -10,31 +10,30 @@
 #include <sys/msg.h>
 #include <sys/errno.h>
 
-#define MAX_SEND_SIZE 80
+#define MAX_SEND_SIZE 10
 
 struct mymsgbuf {
-        long mtype;
-        char mtext[MAX_SEND_SIZE];
+    long mtype;
+    char mtext[MAX_SEND_SIZE];
 };
 
 int msgqid, rc;
 
-void send_message(int qid, struct mymsgbuf *qbuf, long type, char *text){
-        qbuf->mtype = type;
-        strcpy(qbuf->mtext, text);
+void send_message(int qid, struct mymsgbuf *qbuf, long type, char *text) {
+    qbuf->mtype = type;
+    strcpy(qbuf->mtext, text);
 
-        if((msgsnd(qid, (struct msgbuf *)qbuf,
-                strlen(qbuf->mtext)+1, 0)) ==-1){
-                perror("msgsnd");
-                exit(1);
-        }
+    if((msgsnd(qid, (struct msgbuf *)qbuf,
+               strlen(qbuf->mtext)+1, 0)) ==-1) {
+        perror("msgsnd");
+        exit(1);
+    }
 }
 
-int read_message(int qid, struct mymsgbuf *qbuf, long type){
-        qbuf->mtype = type;
-        msgrcv(qid, (struct msgbuf *)qbuf, MAX_SEND_SIZE, type, 0);
-        printf("Type: %ld Text: %s\n", qbuf->mtype, qbuf->mtext);
-        return atoi(qbuf->mtext);
+int read_message(int qid, struct mymsgbuf *qbuf, long type) {
+    qbuf->mtype = type;
+    msgrcv(qid, (struct msgbuf *)qbuf, MAX_SEND_SIZE, type, 0);
+    return atoi(qbuf->mtext);
 }
 
 int main(int argc, char *argv[]) {
@@ -42,83 +41,113 @@ int main(int argc, char *argv[]) {
     key_t key;
     int qtype = 1;
     struct mymsgbuf qbuf;
-    
-    if (argc < 2) {
+    short game = 1;
+    short gamecount = 0;
+
+    if (argc != 4) {
         printf("Usage: ./warcraft all_gold unit_count gold_per_unit\n");
         exit(-1);
     }
-    
+
     int all_gold = atoi(argv[1]);
     int count = atoi(argv[2]), gpu = atoi(argv[3]);
     int pid[count];
-    int fd[argc][2];
     
-	if((msgqid = msgget(IPC_PRIVATE, IPC_CREAT|0660)) == -1) {
-		perror("msgget");
+    if(count < 1 || gpu < 1){
+		printf("Некоректное значение unit_count или gold_per_unit\n");
 		exit(1);
 	}
-        
-    for (i = 1; i < argc; i++) {
-		// создаем канал
-		pipe(fd[i]);
-        // запускаем дочерний процесс 
-        pid[i] = fork();
-        srand(getpid());
 
-        if (-1 == pid[i]) {
-            perror("fork"); /* произошла ошибка */
-            exit(1); /*выход из родительского процесса*/
-        } else if (0 == pid[i]) {
-            close(fd[i][0]);
-            int vel;
-            if(all_gold == 0)
-                vel = 0;
-            else
-            {
-                if(all_gold < gpu)
-                    vel = all_gold;
+    if((msgqid = msgget(IPC_PRIVATE, IPC_CREAT|0660)) == -1) {
+        perror("msgget");
+        exit(1);
+    }
+
+    while(game)
+    {
+		if(all_gold <= 0)
+		{
+			printf("Шахта уже пуста");
+			goto menu;
+		}
+		gamecount++;
+        for (i = 1; i <= count; i++) {
+            // запускаем дочерний процесс
+            pid[i] = fork();
+            srand(getpid());
+
+            if (-1 == pid[i]) {
+                perror("fork"); /* произошла ошибка */
+                exit(1); /*выход из родительского процесса*/
+            } else if (0 == pid[i]) {
+                int vel;
+                if(gpu * i - all_gold >= gpu)
+                    vel = 0;
+                else if(gpu * i - all_gold < gpu && gpu * i - all_gold > 0)
+                {
+                    vel = all_gold - gpu * (i - 1);
+                }
                 else
+                {
                     vel = gpu;
-                printf("Начинаем работу\n");
+                }
+                printf("%d-ый юнит принимается за работу!\n", i);
                 int time = rand() % 4;
                 sleep(time);
-                printf("Заканчиваем работу!\n");
+                printf("Дело сделано! Идём на базу! %d-ый юнит закончил работу.\n", i);
 
-				char str[10];
-				sprintf(str, "%d", vel);
+                char str[10];
+                sprintf(str, "%d", vel);
                 send_message(msgqid, (struct mymsgbuf *)&qbuf, qtype, str);
-                printf(" CHILD: Это %d процесс-потомок отправил сообщение!\n", i);
+                printf("%d-ый юнит добыл %d золота!\n", i, vel);
+                fflush(stdout);
+                exit(0); /* выход из процесс-потомока */
+            }
+        }
+        // если выполняется родительский процесс
+        // ожидание окончания выполнения всех запущенных процессов
+        for (i = 0; i <= count; i++) {
+            status = waitpid(pid[i], &stat, 0);
+            if (pid[i] == status) {
+                printf("Пришла информация. %d-ый юнит пришел на базу. (Результат процесса: %d)\n", i, WEXITSTATUS(stat));
                 fflush(stdout);
             }
-            int res = all_gold - vel;
-            write(fd[i][1], &res, sizeof(int));
-            exit(0); /* выход из процесс-потомока */
+        }
+        int wrk = 0;
+        for (i = 1; i <= count; i++) {
+            wrk += read_message(msgqid, &qbuf, qtype);
+        }
+        all_gold -= wrk;
+        printf("\nВ шахте осталось %d золота\n", all_gold);
+        if(!(gamecount % 3))
+			printf("\nУ ваших юнитов повышение! Теперь они добывают %d золота\n", ++gpu);
+        int choice = 0;
+menu:
+        printf("\nЧто прикажете теперь?\n");
+        printf("1-Снова отправить юнитов в шахту\n2-Найти новую шахту\n0-Закончить игру\n");
+        scanf("%d", &choice);
+        switch(choice)
+        {
+        case 1:
+            break;
+        case 2:
+            printf("Задайте новое значение величины шахты?\n");
+            scanf("%d", &all_gold);
+            break;
+        case 0:
+            printf("Конец игры!\n");
+            game = 0;
+            break;
+        default:
+            printf("Некоректное значение. Введите категорию заново.\n");
+            goto menu;
+            break;
         }
     }
-    // если выполняется родительский процесс
-    printf("PARENT: Это процесс-родитель!\n");
-    // ожидание окончания выполнения всех запущенных процессов
-    for (i = 1; i < argc; i++) {
-		close(fd[i][1]);
-		read(fd[i][0], &all_gold, sizeof(int));
-		printf("\n%d\n", all_gold);
-        status = waitpid(pid[i], &stat, 0);
-        if (pid[i] == status) {
-            printf("процесс-потомок %d done,  result=%d\n", i, WEXITSTATUS(stat));
-            fflush(stdout);
-        }
+    if ((rc = msgctl(msgqid, IPC_RMID, NULL)) < 0) {
+        perror( strerror(errno) );
+        printf("msgctl (return queue) failed, rc=%d\n", rc);
+        return 1;
     }
-	int wrk = 0;
-    for (i = 1; i < argc; i++) {
-		wrk += read_message(msgqid, &qbuf, qtype); 
-	}
-	all_gold -= wrk;
-	printf("Золота осталось %d\n", all_gold);
-	
-	if ((rc = msgctl(msgqid, IPC_RMID, NULL)) < 0) {
-		perror( strerror(errno) );
-		printf("msgctl (return queue) failed, rc=%d\n", rc);
-		return 1;
-	}
     return 0;
 }
