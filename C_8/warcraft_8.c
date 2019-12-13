@@ -52,11 +52,11 @@ int main(int argc, char *argv[]) {
     int all_gold = atoi(argv[1]);
     int count = atoi(argv[2]), gpu = atoi(argv[3]);
     int pid[count];
-    
-    if(count < 1 || gpu < 1){
-		printf("Некоректное значение unit_count или gold_per_unit\n");
-		exit(1);
-	}
+
+    if(count < 1 || gpu < 1) {
+        printf("Некоректное значение unit_count или gold_per_unit\n");
+        exit(1);
+    }
 
     if((msgqid = msgget(IPC_PRIVATE, IPC_CREAT|0660)) == -1) {
         perror("msgget");
@@ -65,12 +65,12 @@ int main(int argc, char *argv[]) {
 
     while(game)
     {
-		if(all_gold <= 0)
-		{
-			printf("Шахта уже пуста");
-			goto menu;
-		}
-		gamecount++;
+        if(all_gold <= 0)
+        {
+            printf("Шахта уже пуста");
+            return 0;
+        }
+        gamecount++;
         for (i = 1; i <= count; i++) {
             // запускаем дочерний процесс
             pid[i] = fork();
@@ -120,29 +120,8 @@ int main(int argc, char *argv[]) {
         all_gold -= wrk;
         printf("\nВ шахте осталось %d золота\n", all_gold);
         if(!(gamecount % 3))
-			printf("\nУ ваших юнитов повышение! Теперь они добывают %d золота\n", ++gpu);
-        int choice = 0;
-menu:
-        printf("\nЧто прикажете теперь?\n");
-        printf("1-Снова отправить юнитов в шахту\n2-Найти новую шахту\n0-Закончить игру\n");
-        scanf("%d", &choice);
-        switch(choice)
-        {
-        case 1:
-            break;
-        case 2:
-            printf("Задайте новое значение величины шахты?\n");
-            scanf("%d", &all_gold);
-            break;
-        case 0:
-            printf("Конец игры!\n");
-            game = 0;
-            break;
-        default:
-            printf("Некоректное значение. Введите категорию заново.\n");
-            goto menu;
-            break;
-        }
+            printf("\nУ ваших юнитов повышение! Теперь они добывают %d золота\n", ++gpu);
+
     }
     if ((rc = msgctl(msgqid, IPC_RMID, NULL)) < 0) {
         perror( strerror(errno) );
