@@ -4,21 +4,46 @@
 #include <unistd.h>
 #include <pthread.h>
 #define MAX 100
+#define MAXMAS 50
+
+static int nitems;
+struct {
+    pthread_mutex_t	mutex;
+    double results[MAXMAS];
+    int	nput;
+    double nval;
+} shared = {
+    PTHREAD_MUTEX_INITIALIZER
+};
+
 struct Array {
     int array[MAX];
     int n;
 };
 
 void *exp_value(void *arg) {
-    struct Array* a = (struct Array*)arg;
-    double *res = (double*)malloc(sizeof(double));
-    *res = 0.0;
-    for(int i = 0; i < a->n; i++)
-        *res += a->array[i];
-    *res /= a->n;
-    sleep(1);
-    printf("Extended Value=%f\n", *res);
-    pthread_exit((void*)res);
+    sleep(rand()%5);
+    while(1)
+    {
+        pthread_mutex_lock(&shared.mutex);
+        if (shared.nput >= nitems) {
+            pthread_mutex_unlock(&shared.mutex);
+            return(NULL);
+        }
+
+        struct Array* a = (struct Array*)arg;
+        double *res = (double*)malloc(sizeof(double));
+        *res = 0.0;
+        for(int i = 0; i < a->n; i++)
+            *res += a->array[i];
+        *res /= a->n;
+        shared.nval = *res;
+        shared.results[shared.nput] = shared.nval;
+        shared.nput++;
+        pthread_mutex_unlock(&shared.mutex);
+        pthread_exit((void*)res);
+        sleep(1);
+    }
 }
 
 int main(int argc, char * argv[]) {
@@ -33,7 +58,7 @@ int main(int argc, char * argv[]) {
         perror("Usage <filename1> <filename2> ...\n");
         exit(1);
     }
-
+    nitems = argc - 1;
     for (int i = 0; i < argc - 1; i++) {
         if((fp = fopen(argv[i + 1], "r")) == NULL)
         {
@@ -47,12 +72,13 @@ int main(int argc, char * argv[]) {
             arr[i].n++;
         }
         result = pthread_create(&threads[i], NULL, exp_value, &arr[i]);
+
         if (result != 0) {
             perror("Creating the first thread");
             return EXIT_FAILURE;
         }
         if(fclose(fp)) {
-            printf("Ошибка при закрытии файла.\n");
+            printf("File didn't close.\n");
             exit(1);
         }
     }
@@ -63,11 +89,15 @@ int main(int argc, char * argv[]) {
             perror("Joining the first thread");
             return EXIT_FAILURE;
         } else {
-            printf("Extended Value of %d array=%f\n", i,  *((double*)status[i]));
+            printf("Extended Value of %d array=%f\n", i, *((double*)status[i]));
         }
         free(status[i]);
     }
 
-    printf("Done..\n");
+    printf("Mutex Results:\n");
+    for(int i = 0; i < shared.nput; i++)
+        printf("%f ", shared.results[i]);
+
+    printf("\nDone..\n");
     return EXIT_SUCCESS;
 }
