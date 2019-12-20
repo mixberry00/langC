@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include "TCPEchoServer.h"
 
 int Check(int x, int y, int c)
@@ -7,19 +8,31 @@ int Check(int x, int y, int c)
     {
     case 1:
         for(int i = x; i > 0; i--)
+        {
             res += Field[i][y];
+            printf("Самолет увидел %d целей в %d %d точке карты", Field[i][y], i, y);
+        }
         break;
     case 2:
         for(int i = y; i < MAX; i++)
+        {
             res += Field[x][i];
+            printf("Самолет увидел %d целей в %d %d точке карты\n", Field[x][i], x, i);
+        }
         break;
     case 3:
         for(int i = x; i < MAX; i++)
+        {
             res += Field[i][y];
+            printf("Самолет увидел %d целей в %d %d точке карты\n", Field[i][y], i, y);
+        }
         break;
     case 4:
         for(int i = y; i > 0; i--)
+        {
             res += Field[x][i];
+            printf("Самолет увидел %d целей в %d %d точке карты\n", Field[i][y], x, i);
+        }
         break;
     }
     return res;

@@ -19,7 +19,7 @@ void Init_Field()
 
 void Print_Field()
 {
-    printf("Field:");
+    printf("Field:\n");
     for(int i = 0; i < MAX; i++)
     {
         for(int j = 0; j < MAX; j++)
