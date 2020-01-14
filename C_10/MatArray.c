@@ -46,7 +46,8 @@ void *exp_value(void *arg) {
     }
 }
 
-int main(int argc, char * argv[]) {
+int main(int argc, char * argv[])
+{
     int result;
     pthread_t threads[argc - 1];
     struct Array arr[argc - 1];
