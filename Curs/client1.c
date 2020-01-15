@@ -10,7 +10,6 @@
 struct mymsg{
 	int T;
 	int N;
-	char text[30];
 };
 
 void DieWithError(char *errorMessage);  /* External error handling function */
@@ -22,7 +21,9 @@ int main(int argc, char *argv[])
     struct sockaddr_in TCPServAddr; 		/* Echo server address */
     unsigned short TCPServPort = 32000;     /* Echo server port */
     char *servIP = "127.0.0.1";                    		/* Server IP address (dotted quad) */
-    struct mymsg *msg;
+    struct mymsg msg;
+    char clntstring[30];
+    int clntstringlen;
     
     //UDP param
     int UDPsock;                         /* Socket */
@@ -75,18 +76,21 @@ int main(int argc, char *argv[])
     if (connect(TCPsock, (struct sockaddr *) &TCPServAddr, sizeof(TCPServAddr)) < 0)
         DieWithError("connect() failed");       
     
-    msg = (struct mymsg*) malloc (sizeof(struct mymsg));
-    
-    msg->N = 20;
-    
     printf("Type number of second client: T = ");
-    scanf("%d", &msg->T);
+    scanf("%d", &msg.T);
     
     printf("Type your message: text = ");
-    scanf("%s", msg->text); 
+    scanf("%s", clntstring);
+    
+    clntstringlen = strlen(clntstring);			/* Determine input length */
+    
+    msg.N = clntstringlen; 
     
     if (send(TCPsock, &msg, sizeof(msg), 0) != sizeof(msg))
        DieWithError("send() sent a different number of bytes than expected");
+       
+    if (send(TCPsock, clntstring, clntstringlen, 0) != clntstringlen)
+        DieWithError("send() sent a different number of bytes than expected");
         
     close(TCPsock);
     exit(0);
