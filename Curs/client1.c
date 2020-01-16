@@ -6,6 +6,7 @@
 #include <unistd.h>     /* for close() */
 
 #define MAXRECVSTRING 255  /* Longest string to receive */
+#define MAXCLNTSTRLEN 100
 
 struct mymsg{
 	int T;
@@ -22,7 +23,7 @@ int main(int argc, char *argv[])
     unsigned short TCPServPort = 32000;     /* Echo server port */
     char *servIP = "127.0.0.1";                    		/* Server IP address (dotted quad) */
     struct mymsg msg;
-    char clntstring[30];
+    char clntstring[MAXCLNTSTRLEN+1];
     int clntstringlen;
     
     //UDP param
@@ -79,8 +80,9 @@ int main(int argc, char *argv[])
     printf("Type number of second client: T = ");
     scanf("%d", &msg.T);
     
+    int q;
     printf("Type your message: text = ");
-    scanf("%s", clntstring);
+    scanf("%s", clntstring); 
     
     clntstringlen = strlen(clntstring);			/* Determine input length */
     
@@ -92,6 +94,7 @@ int main(int argc, char *argv[])
     if (send(TCPsock, clntstring, clntstringlen, 0) != clntstringlen)
         DieWithError("send() sent a different number of bytes than expected");
         
+    close(UDPsock);    
     close(TCPsock);
     exit(0);
 }

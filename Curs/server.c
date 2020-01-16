@@ -8,6 +8,7 @@
 
 #define UDPcount 10
 #define MAXPENDING 5    /* Maximum outstanding connection requests */
+#define MAXCLNTSTRLEN 100
 
 static int ntr = 3;
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -35,33 +36,13 @@ struct mymsg {
 
 void *UDPgetThread(void *arg);
 
+void *UDPsendThread(void *arg);
+
 void *TCPgetThread(void *arg);
 
-int CreateTCPServerSocket(unsigned short port)
-{
-    int sock;                        /* socket to create */
-    struct sockaddr_in echoServAddr; /* Local address */
+void *TCPsendThread(void *arg);
 
-    /* Create socket for incoming connections */
-    if ((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
-        DieWithError("socket() failed");
-
-    /* Construct local address structure */
-    memset(&echoServAddr, 0, sizeof(echoServAddr));   /* Zero out structure */
-    echoServAddr.sin_family = AF_INET;                /* Internet address family */
-    echoServAddr.sin_addr.s_addr = htonl(INADDR_ANY); /* Any incoming interface */
-    echoServAddr.sin_port = htons(port);              /* Local port */
-
-    /* Bind to the local address */
-    if (bind(sock, (struct sockaddr *) &echoServAddr, sizeof(echoServAddr)) < 0)
-        DieWithError("bind() failed");
-
-    /* Mark the socket so it will listen for incoming connections */
-    if (listen(sock, MAXPENDING) < 0)
-        DieWithError("listen() failed");
-
-    return sock;
-}
+int CreateTCPServerSocket(unsigned short port, struct sockaddr_in *TCPServAddr);
 
 int main(int argc, char *argv[])
 {
@@ -69,36 +50,29 @@ int main(int argc, char *argv[])
     void *status[4];
     pthread_t tid[4];
     //TCP param
-    int TCPservSock;
+    int TCPservSockF, TCPservSockS;
     int TCPsockF, TCPsockS;
-    struct sockaddr_in TCPServAddr, TCPclntAddrF;
-    unsigned short TCPServPortF = 32000;     	/* Server port */
-    unsigned int clntLen;            			/* Length of client address data structure */
+    struct sockaddr_in TCPServAddrF, TCPServAddrS;
+    unsigned short TCPServPortF = 32000, TCPServPortS = 32001;     	
     struct mymsg *msg;
-    struct ThreadArgsTCP *threadArgsTCPget;
+    struct ThreadArgsTCP *threadArgsTCPget, *threadArgsTCPsend;
 
     //UDP param
     int sockF[UDPcount], sockS[UDPcount];                         			/* Socket */
     struct sockaddr_in broadcastAddrF[UDPcount], broadcastAddrS[UDPcount];  /* Broadcast address */
     char *broadcastIP;                										/* IP broadcast address */
     unsigned short broadcastPortF[UDPcount], broadcastPortS[UDPcount];     	/* Server port */
-    char *sendStringFirst, *sendStringSecond;                 				/* String to broadcast */
     int broadcastPermission = 1;          									/* Socket opt to set permission to broadcast */
-    unsigned int sendStringLenF, sendStringLenS;       						/* Length of string to broadcast */
-    struct ThreadArgs *threadArgsUDPget;   /* Pointer to argument structure for thread */
+    struct ThreadArgs *threadArgsUDPget, *threadArgsUDPsend;   				/* Pointer to argument structure for thread */
 
     //broadcast IP address
     broadcastIP = "127.0.0.1";
     //broadcast ports for get
     for(int i = 32002, j = 0; i < 32011; i++)
         broadcastPortF[j++] = i;
-    //broadcast msg for get
-    sendStringFirst = "I'm ready to get msg";
     //broadcast ports for send
     for(int i = 32014, j = 0; i < 32024; i++)
         broadcastPortS[j++] = i;
-    //broadcast msg for send
-    sendStringSecond = "I'm ready to send msg";
 
     for(int i = 0; i < UDPcount; i++)
     {
@@ -131,46 +105,43 @@ int main(int argc, char *argv[])
         broadcastAddrS[i].sin_port = htons(broadcastPortS[i]);         /* Broadcast port */
     }
 
-    sendStringLenF = strlen(sendStringFirst);  /* Find length of sendString */
-    sendStringLenS = strlen(sendStringSecond);  /* Find length of sendString */
-
-    //Create UDPThread args
+    //Create UDPGET Thread args
     /* Create separate memory for client argument */
     if ((threadArgsUDPget = (struct ThreadArgs *) malloc(sizeof(struct ThreadArgs)))
             == NULL)
         DieWithError("malloc() failed");
     threadArgsUDPget -> UDPsockets = sockF;
     threadArgsUDPget -> broadcastAddr = broadcastAddrF;
+    
+    //Create UDPSEND Thread args
+    /* Create separate memory for client argument */
+    if ((threadArgsUDPsend = (struct ThreadArgs *) malloc(sizeof(struct ThreadArgs)))
+            == NULL)
+        DieWithError("malloc() failed");
+    threadArgsUDPsend -> UDPsockets = sockS;
+    threadArgsUDPsend -> broadcastAddr = broadcastAddrS;
 
-    //Create TCP sock
-    /* Create socket for incoming connections */
-    if ((TCPservSock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
-        DieWithError("socket() failed");
+    //Create TCPget sock
+    TCPservSockF = CreateTCPServerSocket(TCPServPortF, &TCPServAddrF);
 
-    /* Construct local address structure */
-    memset(&TCPServAddr, 0, sizeof(TCPServAddr));   /* Zero out structure */
-    TCPServAddr.sin_family = AF_INET;                /* Internet address family */
-    TCPServAddr.sin_addr.s_addr = htonl(INADDR_ANY); /* Any incoming interface */
-    TCPServAddr.sin_port = htons(TCPServPortF);      /* Local port */
-
-    /* Bind to the local address */
-    if (bind(TCPservSock, (struct sockaddr *) &TCPServAddr, sizeof(TCPServAddr)) < 0)
-        DieWithError("bind() failed");
-
-    /* Mark the socket so it will listen for incoming connections */
-    if (listen(TCPservSock, MAXPENDING) < 0)
-        DieWithError("listen() failed");
-
-    //Create TCPthread args
+    //Create TCPget thread args
     /* Create separate memory for client argument */
     if ((threadArgsTCPget = (struct ThreadArgsTCP *) malloc(sizeof(struct ThreadArgsTCP)))
             == NULL)
         DieWithError("malloc() failed");
-    threadArgsTCPget -> TCPsocket = TCPservSock;
-    threadArgsTCPget -> TCPAddr = TCPServAddr;
+    threadArgsTCPget -> TCPsocket = TCPservSockF;
+    threadArgsTCPget -> TCPAddr = TCPServAddrF;
+    
+    //Create TCPsend sock
+    TCPservSockS = CreateTCPServerSocket(TCPServPortS, &TCPServAddrS);
 
-    /* Set the size of the in-out parameter */
-    clntLen = sizeof(TCPclntAddrF);
+    //Create TCPsend thread args
+    /* Create separate memory for client argument */
+    if ((threadArgsTCPsend = (struct ThreadArgsTCP *) malloc(sizeof(struct ThreadArgsTCP)))
+            == NULL)
+        DieWithError("malloc() failed");
+    threadArgsTCPsend -> TCPsocket = TCPservSockS;
+    threadArgsTCPsend -> TCPAddr = TCPServAddrS;
 
     printf("Server is working\n");
 
@@ -178,11 +149,19 @@ int main(int argc, char *argv[])
     if (pthread_create(&tid[0], NULL, UDPgetThread, (void *) threadArgsUDPget) != 0)
         DieWithError("pthread_create() failed");
         
-    /* Create UDPget thread */
-    if (pthread_create(&tid[1], NULL, TCPgetThread, (void *) threadArgsTCPget) != 0)
+    /* Create UDPsend thread */
+    if (pthread_create(&tid[1], NULL, UDPsendThread, (void *) threadArgsUDPsend) != 0)
+        DieWithError("pthread_create() failed");
+        
+    /* Create TCPget thread */
+    if (pthread_create(&tid[2], NULL, TCPgetThread, (void *) threadArgsTCPget) != 0)
+        DieWithError("pthread_create() failed");
+        
+    /* Create TCPsend thread */
+    if (pthread_create(&tid[3], NULL, TCPsendThread, (void *) threadArgsTCPsend) != 0)
         DieWithError("pthread_create() failed");
 
-    for(int i = 0; i < 2; i++)
+    for(int i = 0; i < 4; i++)
     {
         result = pthread_join(tid[i], &status[i]);
         if (result != 0) {
@@ -190,46 +169,34 @@ int main(int argc, char *argv[])
             return EXIT_FAILURE;
         }
         free(status[i]);
+        close(TCPservSockF);
+        close(TCPservSockS);
     }
+}
 
-    //~ for (;;) /* Run forever */
-    //~ {
-    //~ for(int i = 0; i < UDPcount; i++)
-    //~ {
-    //~ /* Broadcast sendString in datagram to clients every 5 seconds*/
-    //~ if (sendto(sockF[i], sendStringFirst, sendStringLenF, 0, (struct sockaddr *)
-    //~ &broadcastAddrF[i], sizeof(broadcastAddrF[i])) != sendStringLenF)
-    //~ DieWithError("sendto() sent a different number of bytes than expected");
+int CreateTCPServerSocket(unsigned short port, struct sockaddr_in *TCPServAddr)
+{
+    int sock;                        /* socket to create */
 
-    //~ if (sendto(sockS[i], sendStringSecond, sendStringLenS, 0, (struct sockaddr *)
-    //~ &broadcastAddrS[i], sizeof(broadcastAddrS[i])) != sendStringLenS)
-    //~ DieWithError("sendto() sent a different number of bytes than expected");
-    //~ }
+    /* Create socket for incoming connections */
+    if ((sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
+        DieWithError("socket() failed");
 
-    //~ /* Wait for a client to connect */
-    //~ if ((TCPsockF = accept(TCPservSock, (struct sockaddr *) &TCPclntAddrF,
-    //~ &clntLen)) < 0)
-    //~ DieWithError("accept() failed");
+    /* Construct local address structure */
+    memset(TCPServAddr, 0, sizeof(TCPServAddr));   /* Zero out structure */
+    TCPServAddr->sin_family = AF_INET;                /* Internet address family */
+    TCPServAddr->sin_addr.s_addr = htonl(INADDR_ANY); /* Any incoming interface */
+    TCPServAddr->sin_port = htons(port);              /* Local port */
 
-    //~ /* clntSock is connected to a client! */
+    /* Bind to the local address */
+    if (bind(sock, (struct sockaddr *) TCPServAddr, sizeof(*TCPServAddr)) < 0)
+        DieWithError("bind() failed");
 
-    //~ printf("Handling client %s\n", inet_ntoa(TCPclntAddrF.sin_addr));
+    /* Mark the socket so it will listen for incoming connections */
+    if (listen(sock, MAXPENDING) < 0)
+        DieWithError("listen() failed");
 
-    //~ int recvMsgSize;
-
-    //~ msg = (struct mymsg*) malloc (sizeof(struct mymsg));
-
-    //~ if ((recvMsgSize = recv(TCPsockF, &msg, sizeof(*msg), 0)) < 0)
-    //~ DieWithError("recv() failed");
-
-    //~ printf("DATA:\n");
-    //~ printf("T=%d\n", msg->T);
-    //~ printf("N=%d\n", msg->N);
-    //~ printf("Message = %s", msg->text);
-
-    //~ sleep(5);   /* Avoids flooding the network */
-    //~ }
-    /* NOT REACHED */
+    return sock;
 }
 
 void *UDPgetThread(void *threadArgs)
@@ -247,6 +214,25 @@ void *UDPgetThread(void *threadArgs)
                        &broadcastAddrF[i], sizeof(broadcastAddrF[i])) != sendStringLen)
                 DieWithError("sendto() sent a different number of bytes than expected");
         }
+        sleep(5);
+    }
+}
+
+void *UDPsendThread(void *threadArgs)
+{
+	int *sockS = ((struct ThreadArgs *) threadArgs) -> UDPsockets;
+    char *sendString = "I'm ready to send msg";
+    int sendStringLen = strlen(sendString);  /* Find length of sendString */
+    struct sockaddr_in *broadcastAddrF = ((struct ThreadArgs *) threadArgs) -> broadcastAddr;
+    for(;;)
+    {
+        for(int i = 0; i < UDPcount - 1; i++)
+        {
+            /* Broadcast sendString in datagram to clients every 5 seconds*/
+            if (sendto(sockS[i], sendString, sendStringLen, 0, (struct sockaddr *)
+                       &broadcastAddrF[i], sizeof(broadcastAddrF[i])) != sendStringLen)
+                DieWithError("sendto() sent a different number of bytes than expected");
+        }
 
         sleep(5);
     }
@@ -254,30 +240,30 @@ void *UDPgetThread(void *threadArgs)
 
 void *TCPgetThread(void *threadArgs)
 {
-	int TCPsockF;
-	char clntstr[30];
+	int TCPsockClnt;
+	char clntstr[MAXCLNTSTRLEN];
 	int TCPservSock = ((struct ThreadArgsTCP *) threadArgs) -> TCPsocket;
-	struct sockaddr_in TCPclntAddrF = ((struct ThreadArgsTCP *) threadArgs) -> TCPAddr;
+	struct sockaddr_in TCPclntAddr = ((struct ThreadArgsTCP *) threadArgs) -> TCPAddr;
 	/* Set the size of the in-out parameter */
-    int clntLen = sizeof(TCPclntAddrF);
+    int clntLen = sizeof(TCPclntAddr);
     /* Guarantees that thread resources are deallocated upon return */
     pthread_detach(pthread_self()); 
     for(;;)
     {
 		/* Wait for a client to connect */
-		if ((TCPsockF = accept(TCPservSock, (struct sockaddr *) &TCPclntAddrF,
+		if ((TCPsockClnt = accept(TCPservSock, (struct sockaddr *) &TCPclntAddr,
 							   &clntLen)) < 0)
 			DieWithError("accept() failed");
 
 		/* clntSock is connected to a client! */
 
-		printf("Handling client %s\n", inet_ntoa(TCPclntAddrF.sin_addr));
+		printf("Handling client %s\n", inet_ntoa(TCPclntAddr.sin_addr));
 
 		int recvMsgSize;
 
 		struct mymsg msg;
 
-		if ((recvMsgSize = recv(TCPsockF, &msg, sizeof(msg), 0)) < 0)
+		if ((recvMsgSize = recv(TCPsockClnt, &msg, sizeof(msg), 0)) < 0)
 			DieWithError("recv() failed");
 
 		printf("DATA:\n");
@@ -285,16 +271,61 @@ void *TCPgetThread(void *threadArgs)
 		printf("N=%d\n", msg.N);
 		
 		
-		if ((recvMsgSize = recv(TCPsockF, clntstr, msg.N, 0)) < 0)
+		if ((recvMsgSize = recv(TCPsockClnt, clntstr, msg.N, 0)) < 0)
 			DieWithError("recv() failed");
 			
 		clntstr[msg.N] = '\0';
 		
 		printf("Message=%s\n", clntstr);
 		
-		fflush(stdout);
-		close(TCPsockF);    /* Close client socket */
+		close(TCPsockClnt);    /* Close client socket */
 
-		sleep(5);   /* Avoids flooding the network */
+		sleep(3);   /* Control server from overpower */
+	}
+}
+
+void *TCPsendThread(void *threadArgs)
+{
+	int TCPsockClnt;
+	char clntstr[MAXCLNTSTRLEN];
+	int TCPservSock = ((struct ThreadArgsTCP *) threadArgs) -> TCPsocket;
+	struct sockaddr_in TCPclntAddr = ((struct ThreadArgsTCP *) threadArgs) -> TCPAddr;
+	/* Set the size of the in-out parameter */
+    int clntLen = sizeof(TCPclntAddr);
+    //Client number
+    int T;
+    /* Guarantees that thread resources are deallocated upon return */
+    pthread_detach(pthread_self()); 
+    for(;;)
+    {
+		/* Wait for a client to connect */
+		if ((TCPsockClnt = accept(TCPservSock, (struct sockaddr *) &TCPclntAddr,
+							   &clntLen)) < 0)
+			DieWithError("accept() failed");
+
+		/* clntSock is connected to a client! */
+
+		printf("Handling client %s\n", inet_ntoa(TCPclntAddr.sin_addr));
+		
+		int recvMsgSize;
+		
+		if ((recvMsgSize = recv(TCPsockClnt, &T, sizeof(int), 0)) < 0)
+			DieWithError("recv() failed");
+			
+		printf("Client number: %d\n", T);
+		
+		char recvstr[MAXCLNTSTRLEN] = "qwerty";
+		
+		int sendMsgSize = strlen(recvstr);
+
+		/* Echo message back to client */
+        if (send(TCPsockClnt, recvstr, sendMsgSize, 0) != sendMsgSize)
+            DieWithError("send() failed");
+            
+        printf("Message sent\n");
+		
+		close(TCPsockClnt);    /* Close client socket */
+
+		sleep(3);   /* Control server from overpower */
 	}
 }
