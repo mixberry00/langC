@@ -80,7 +80,7 @@ int main(int argc, char *argv[])
     if (connect(TCPsock, (struct sockaddr *) &TCPServAddr, sizeof(TCPServAddr)) < 0)
         DieWithError("connect() failed");
         
-    T = rand() % 50;
+    T = 50;
     
     printf("Your number is: %d\n", T);
     

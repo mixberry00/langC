@@ -5,14 +5,22 @@
 #include <string.h>     /* for memset() */
 #include <unistd.h>     /* for close() */
 #include <pthread.h> 	/* for threads */
+#include <sys/msg.h>
+#include <sys/errno.h>
 
 #define UDPcount 10
 #define MAXPENDING 5    /* Maximum outstanding connection requests */
 #define MAXCLNTSTRLEN 100
 
-static int ntr = 3;
-static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t condvar = PTHREAD_COND_INITIALIZER;
+int msgqid, rc;
+
+struct mymsgbuf 
+{
+    long mtype;
+    int mT;
+    int mN;
+    char mtext[MAXCLNTSTRLEN];
+};
 
 /* Structure of arguments to pass to client thread */
 struct ThreadArgs
@@ -27,12 +35,17 @@ struct ThreadArgsTCP
     struct sockaddr_in TCPAddr;
 };
 
-void DieWithError(char *errorMessage);  /* External error handling function */
-
-struct mymsg {
+struct mymsg 
+{
     int T;
     int N;
 };
+
+void DieWithError(char *errorMessage);  /* External error handling function */
+
+void send_message(int qid, struct mymsgbuf *qbuf, long type, int T, int N, char *text);
+
+char *read_message(int qid, struct mymsgbuf *qbuf, long type);
 
 void *UDPgetThread(void *arg);
 
@@ -46,6 +59,7 @@ int CreateTCPServerSocket(unsigned short port, struct sockaddr_in *TCPServAddr);
 
 int main(int argc, char *argv[])
 {
+	//Threads param
     int result;
     void *status[4];
     pthread_t tid[4];
@@ -54,7 +68,6 @@ int main(int argc, char *argv[])
     int TCPsockF, TCPsockS;
     struct sockaddr_in TCPServAddrF, TCPServAddrS;
     unsigned short TCPServPortF = 32000, TCPServPortS = 32001;     	
-    struct mymsg *msg;
     struct ThreadArgsTCP *threadArgsTCPget, *threadArgsTCPsend;
 
     //UDP param
@@ -64,6 +77,12 @@ int main(int argc, char *argv[])
     unsigned short broadcastPortF[UDPcount], broadcastPortS[UDPcount];     	/* Server port */
     int broadcastPermission = 1;          									/* Socket opt to set permission to broadcast */
     struct ThreadArgs *threadArgsUDPget, *threadArgsUDPsend;   				/* Pointer to argument structure for thread */
+    
+    //Create queue ident    
+    if((msgqid = msgget(IPC_PRIVATE, IPC_CREAT|0660)) == -1) {
+       perror("msgget");
+       exit(1);
+    }
 
     //broadcast IP address
     broadcastIP = "127.0.0.1";
@@ -160,7 +179,8 @@ int main(int argc, char *argv[])
     /* Create TCPsend thread */
     if (pthread_create(&tid[3], NULL, TCPsendThread, (void *) threadArgsTCPsend) != 0)
         DieWithError("pthread_create() failed");
-
+        
+	//wait ending of each thread
     for(int i = 0; i < 4; i++)
     {
         result = pthread_join(tid[i], &status[i]);
@@ -172,7 +192,34 @@ int main(int argc, char *argv[])
         close(TCPservSockF);
         close(TCPservSockS);
     }
+    
+    if ((rc = msgctl(msgqid, IPC_RMID, NULL)) < 0) {
+        perror( strerror(errno) );
+        printf("msgctl (return queue) failed, rc=%d\n", rc);
+        return 1;
+    }
+    
+    return 0;
 }
+
+void send_message(int qid, struct mymsgbuf *qbuf, long type, int T, int N, char *text) {
+    qbuf->mtype = type;
+    qbuf->mT = T;
+    qbuf->mN = N;
+    strcpy(qbuf->mtext, text);
+    if((msgsnd(qid, (struct msgbuf *)qbuf,
+               sizeof(struct mymsgbuf) - sizeof(long), 0)) ==-1) {
+        perror("msgsnd");
+        exit(1);
+    }
+}
+
+char *read_message(int qid, struct mymsgbuf *qbuf, long type) {
+    qbuf->mtype = type;
+    msgrcv(qid, (struct msgbuf *)qbuf, sizeof(struct mymsgbuf) - sizeof(long), type, 0);
+    return qbuf->mtext;
+}
+
 
 int CreateTCPServerSocket(unsigned short port, struct sockaddr_in *TCPServAddr)
 {
@@ -242,6 +289,8 @@ void *TCPgetThread(void *threadArgs)
 {
 	int TCPsockClnt;
 	char clntstr[MAXCLNTSTRLEN];
+	struct mymsgbuf qbuf;
+	int qtype = 1;
 	int TCPservSock = ((struct ThreadArgsTCP *) threadArgs) -> TCPsocket;
 	struct sockaddr_in TCPclntAddr = ((struct ThreadArgsTCP *) threadArgs) -> TCPAddr;
 	/* Set the size of the in-out parameter */
@@ -264,19 +313,14 @@ void *TCPgetThread(void *threadArgs)
 		struct mymsg msg;
 
 		if ((recvMsgSize = recv(TCPsockClnt, &msg, sizeof(msg), 0)) < 0)
-			DieWithError("recv() failed");
-
-		printf("DATA:\n");
-		printf("T=%d\n", msg.T);
-		printf("N=%d\n", msg.N);
-		
+			DieWithError("recv() failed");		
 		
 		if ((recvMsgSize = recv(TCPsockClnt, clntstr, msg.N, 0)) < 0)
 			DieWithError("recv() failed");
 			
 		clntstr[msg.N] = '\0';
 		
-		printf("Message=%s\n", clntstr);
+		send_message(msgqid, (struct mymsgbuf *)&qbuf, qtype, msg.T, msg.N, clntstr);
 		
 		close(TCPsockClnt);    /* Close client socket */
 
@@ -288,6 +332,8 @@ void *TCPsendThread(void *threadArgs)
 {
 	int TCPsockClnt;
 	char clntstr[MAXCLNTSTRLEN];
+	struct mymsgbuf qbuf;
+	int qtype = 1;
 	int TCPservSock = ((struct ThreadArgsTCP *) threadArgs) -> TCPsocket;
 	struct sockaddr_in TCPclntAddr = ((struct ThreadArgsTCP *) threadArgs) -> TCPAddr;
 	/* Set the size of the in-out parameter */
@@ -314,7 +360,7 @@ void *TCPsendThread(void *threadArgs)
 			
 		printf("Client number: %d\n", T);
 		
-		char recvstr[MAXCLNTSTRLEN] = "qwerty";
+		char *recvstr = read_message(msgqid, (struct mymsgbuf *)&qbuf, qtype);
 		
 		int sendMsgSize = strlen(recvstr);
 
